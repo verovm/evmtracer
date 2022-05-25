@@ -37,8 +37,11 @@ The substate-cli replay command requires two arguments:
 last block of the inclusive range of blocks to replay transactions.`,
 }
 
-// replayTask replays a transaction substate
-func replayTask(block uint64, tx int, substate *research.Substate, taskPool *research.SubstateTaskPool) error {
+// replayWorkerAction replays a transaction substate, and checks the result
+func replayWorkerAction(block uint64, tx int, substate *research.Substate) (ret research.WorkerResult, err error) {
+    var result research.VanillaWorkerResult
+	result.BlockId = block
+	result.TxId = tx
 
 	inputAlloc := substate.InputAlloc
 	inputEnv := substate.Env
@@ -106,7 +109,7 @@ func replayTask(block uint64, tx int, substate *research.Substate, taskPool *res
 
 	tracer, err := getTracerFn(txIndex, txHash)
 	if err != nil {
-		return err
+		return result, err
 	}
 	vmConfig.Tracer = tracer
 	vmConfig.Debug = (tracer != nil)
@@ -123,11 +126,11 @@ func replayTask(block uint64, tx int, substate *research.Substate, taskPool *res
 
 	if err != nil {
 		statedb.RevertToSnapshot(snapshot)
-		return err
+		return result, err
 	}
 
 	if hashError != nil {
-		return hashError
+		return result, hashError
 	}
 
 	if chainConfig.IsByzantium(blockCtx.BlockNumber) {
@@ -175,10 +178,10 @@ func replayTask(block uint64, tx int, substate *research.Substate, taskPool *res
 		fmt.Printf("outputResult:\n%s\n", jbytes)
 		jbytes, _ = json.MarshalIndent(evmResult, "", " ")
 		fmt.Printf("evmResult:\n%s\n", jbytes)
-		return fmt.Errorf("inconsistent output")
+		return result, fmt.Errorf("inconsistent output")
 	}
 
-	return nil
+	return result, nil
 }
 
 // record-replay: func replayAction for replay command
@@ -205,7 +208,10 @@ func replayAction(ctx *cli.Context) error {
 	research.OpenSubstateDBReadOnly()
 	defer research.CloseSubstateDB()
 
-	taskPool := research.NewSubstateTaskPool("substate-cli replay", replayTask, uint64(first), uint64(last), ctx)
-	err = taskPool.Execute()
+	taskPool := research.NewSubstateTaskPool(
+        "substate-cli replay",
+		replayWorkerAction, research.VanillaCollectorAction, research.VanillaCollectorInit,
+        uint64(first), uint64(last), ctx)
+	_, err = taskPool.Execute()
 	return err
 }

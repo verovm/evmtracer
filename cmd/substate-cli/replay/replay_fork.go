@@ -107,7 +107,10 @@ var (
 	ErrReplayForkMisc         = errors.New("misc in replay-fork")
 )
 
-func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool *research.SubstateTaskPool) error {
+func replayForkTask(block uint64, tx int, substate *research.Substate) (ret research.WorkerResult, err error) {
+    var result research.VanillaWorkerResult
+	result.BlockId = block
+	result.TxId = tx
 	var stat *ReplayForkStat
 	defer func() {
 		if stat != nil {
@@ -170,7 +173,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 
 	tracer, err := getTracerFn(txIndex, txHash)
 	if err != nil {
-		return err
+		return result, err
 	}
 	vmConfig.Tracer = tracer
 	vmConfig.Debug = (tracer != nil)
@@ -196,7 +199,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 			Count:  1,
 			ErrStr: strings.Split(err.Error(), ":")[0],
 		}
-		return nil
+		return result, nil
 	}
 
 	if chainConfig.IsByzantium(blockCtx.BlockNumber) {
@@ -231,7 +234,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 					Count:  1,
 					ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 				}
-				return nil
+				return result, nil
 			}
 			for addr := range outputAlloc {
 				account1 := outputAlloc[addr]
@@ -241,7 +244,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 						Count:  1,
 						ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 					}
-					return nil
+					return result, nil
 				}
 
 				// check nonce
@@ -250,7 +253,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 						Count:  1,
 						ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 					}
-					return nil
+					return result, nil
 				}
 
 				// check code
@@ -259,7 +262,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 						Count:  1,
 						ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 					}
-					return nil
+					return result, nil
 				}
 
 				// check storage
@@ -270,7 +273,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 						Count:  1,
 						ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 					}
-					return nil
+					return result, nil
 				}
 				for k, v1 := range storage1 {
 					if v2, exist := storage2[k]; !exist || v1 != v2 {
@@ -278,7 +281,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 							Count:  1,
 							ErrStr: fmt.Sprintf("%v", ErrReplayForkInvalidAlloc),
 						}
-						return nil
+						return result, nil
 					}
 				}
 			}
@@ -289,7 +292,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 					Count:  1,
 					ErrStr: fmt.Sprintf("%v", ErrReplayForkMoreGas),
 				}
-				return nil
+				return result, nil
 			}
 
 			// less gas
@@ -298,7 +301,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 					Count:  1,
 					ErrStr: fmt.Sprintf("%v", ErrReplayForkLessGas),
 				}
-				return nil
+				return result, nil
 			}
 
 			// misc: logs, ...
@@ -306,7 +309,7 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 				Count:  1,
 				ErrStr: fmt.Sprintf("%v", ErrReplayForkMisc),
 			}
-			return nil
+			return result, nil
 
 		} else if outputResult.Status == types.ReceiptStatusSuccessful &&
 			evmResult.Status == types.ReceiptStatusFailed {
@@ -315,18 +318,18 @@ func replayForkTask(block uint64, tx int, substate *research.Substate, taskPool 
 				Count:  1,
 				ErrStr: fmt.Sprintf("%v", msgResult.Err),
 			}
-			return nil
+			return result, nil
 		} else {
 			// misc (logs, ...)
 			stat = &ReplayForkStat{
 				Count:  1,
 				ErrStr: fmt.Sprintf("%v", ErrReplayForkMisc),
 			}
-			return nil
+			return result, nil
 		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // record-replay: func replayForkAction for replay-fork command
@@ -399,8 +402,10 @@ func replayForkAction(ctx *cli.Context) error {
 		statWg.Done()
 	}()
 
-	taskPool := research.NewSubstateTaskPool("substate-cli replay-fork", replayForkTask, uint64(first), uint64(last), ctx)
-	err = taskPool.Execute()
+	taskPool := research.NewSubstateTaskPool("substate-cli replay-fork",
+        replayForkTask, research.VanillaCollectorAction, research.VanillaCollectorInit,
+        uint64(first), uint64(last), ctx)
+	_, err = taskPool.Execute()
 	if err == nil {
 		close(ReplayForkStatChan)
 	}

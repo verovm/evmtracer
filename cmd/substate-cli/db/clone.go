@@ -62,13 +62,18 @@ func clone(ctx *cli.Context) error {
 	dstDB := research.NewSubstateDB(dstBackend)
 	defer dstDB.Close()
 
-	cloneTask := func(block uint64, tx int, substate *research.Substate, taskPool *research.SubstateTaskPool) error {
+	cloneTask := func(block uint64, tx int, substate *research.Substate) (research.WorkerResult, error) {
+        var result research.VanillaWorkerResult
+        result.BlockId = block
+        result.TxId = tx
 		dstDB.PutSubstate(block, tx, substate)
-		return nil
+		return result, nil
 	}
 
-	taskPool := research.NewSubstateTaskPool("substate-cli db clone", cloneTask, uint64(first), uint64(last), ctx)
+	taskPool := research.NewSubstateTaskPool("substate-cli db clone",
+        cloneTask, research.VanillaCollectorAction, research.VanillaCollectorInit,
+        uint64(first), uint64(last), ctx)
 	taskPool.DB = srcDB
-	err = taskPool.Execute()
+	_, err = taskPool.Execute()
 	return err
 }

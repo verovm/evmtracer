@@ -30,11 +30,57 @@ var (
 	}
 )
 
-type SubstateTaskFunc func(block uint64, tx int, substate *Substate, taskPool *SubstateTaskPool) error
+// Abstract the behvaior of replay
+// An abstract replayer should take:
+// 1. <start> and <end> block range
+// 2. An action on each tx (workers)
+// 3. A summary action for each result from the worker (collector)
+// 4. As well as an init value for the summary action to start with
+// Effectively, foldr(init, summary_func, fmap(action, <start>..<end>))
+type WorkloadConfig struct {
+	First uint64
+	Last  uint64
+}
+
+type WorkerResult interface{}
+
+// A BlockResult is simply a collection of results from all txs in a block
+type BlockResult struct {
+	Results []WorkerResult
+	BlockId uint64
+}
+
+type CollectorResult interface{}
+
+type WorkerAction func(block uint64, tx int, substate *Substate) (ret WorkerResult, err error)
+type CollectorAction func(result BlockResult, prev *CollectorResult) error
+
+// Return an initial value for the collector result
+type CollectorInit func() CollectorResult
+
+//
+// A set of Vanilla worker and collector actions
+//
+
+type VanillaWorkerResult struct {
+	BlockId uint64
+	TxId    int
+}
+
+type VanillaCollectorResult struct{}
+
+func VanillaCollectorInit() CollectorResult {
+	return &VanillaCollectorResult{}
+}
+func VanillaCollectorAction(result BlockResult, prev *CollectorResult) error {
+	return nil
+}
 
 type SubstateTaskPool struct {
-	Name     string
-	TaskFunc SubstateTaskFunc
+	Name            string
+	WorkerAction    WorkerAction
+	CollectorAction CollectorAction
+	CollectorInit   CollectorInit
 
 	First uint64
 	Last  uint64
@@ -49,10 +95,16 @@ type SubstateTaskPool struct {
 	DB *SubstateDB
 }
 
-func NewSubstateTaskPool(name string, taskFunc SubstateTaskFunc, first, last uint64, ctx *cli.Context) *SubstateTaskPool {
+func NewSubstateTaskPool(name string,
+	workerAction WorkerAction,
+	collectorAction CollectorAction, collectorInit CollectorInit,
+	first, last uint64,
+	ctx *cli.Context) *SubstateTaskPool {
 	return &SubstateTaskPool{
-		Name:     name,
-		TaskFunc: taskFunc,
+		Name:            name,
+		WorkerAction:    workerAction,
+		CollectorAction: collectorAction,
+		CollectorInit:   collectorInit,
 
 		First: first,
 		Last:  last,
@@ -69,7 +121,9 @@ func NewSubstateTaskPool(name string, taskFunc SubstateTaskFunc, first, last uin
 }
 
 // ExecuteBlock function iterates on substates of a given block call TaskFunc
-func (pool *SubstateTaskPool) ExecuteBlock(block uint64) (numTx int64, err error) {
+func (pool *SubstateTaskPool) ExecuteBlock(block uint64) (results BlockResult, err error) {
+	results.BlockId = block
+	var res WorkerResult
 	for tx, substate := range pool.DB.GetBlockSubstates(block) {
 		alloc := substate.InputAlloc
 		msg := substate.Message
@@ -92,19 +146,18 @@ func (pool *SubstateTaskPool) ExecuteBlock(block uint64) (numTx int64, err error
 			continue
 		}
 
-		err = pool.TaskFunc(block, tx, substate, pool)
+		res, err = pool.WorkerAction(block, tx, substate)
 		if err != nil {
-			return numTx, fmt.Errorf("%s: %v_%v: %v", pool.Name, block, tx, err)
+			return results, fmt.Errorf("%s: %v_%v: %v", pool.Name, block, tx, err)
 		}
-
-		numTx++
+		results.Results = append(results.Results, res)
 	}
 
-	return numTx, nil
+	return results, nil
 }
 
 // Execute function spawns worker goroutines and schedule tasks.
-func (pool *SubstateTaskPool) Execute() error {
+func (pool *SubstateTaskPool) Execute() (res CollectorResult, err error) {
 	start := time.Now()
 
 	var totalNumBlock, totalNumTx int64
@@ -158,13 +211,11 @@ func (pool *SubstateTaskPool) Execute() error {
 				select {
 
 				case block := <-workChan:
-					nt, err := pool.ExecuteBlock(block)
-					atomic.AddInt64(&totalNumTx, nt)
-					atomic.AddInt64(&totalNumBlock, 1)
+					results, err := pool.ExecuteBlock(block)
 					if err != nil {
 						doneChan <- err
 					} else {
-						doneChan <- block
+						doneChan <- results
 					}
 
 				case <-stopChan:
@@ -197,6 +248,7 @@ func (pool *SubstateTaskPool) Execute() error {
 	var lastSec float64
 	var lastNumBlock, lastNumTx int64
 	waitMap := make(map[uint64]struct{})
+	collectorResult := pool.CollectorInit()
 	for block := pool.First; block <= pool.Last; {
 
 		// Count finshed blocks from waitMap in order
@@ -227,12 +279,21 @@ func (pool *SubstateTaskPool) Execute() error {
 		data := <-doneChan
 		switch t := data.(type) {
 
-		case uint64:
-			waitMap[data.(uint64)] = struct{}{}
-
+		case BlockResult:
+			var err error
+			blockResult := BlockResult(data.(BlockResult))
+			blockId := blockResult.BlockId
+			nt := int64(len(blockResult.Results))
+			waitMap[blockId] = struct{}{}
+			err = pool.CollectorAction(blockResult, &collectorResult)
+			if err != nil {
+				panic(err)
+			}
+			totalNumTx += nt
+			totalNumBlock += 1
 		case error:
 			err := data.(error)
-			return err
+			return res, err
 
 		default:
 			panic(fmt.Errorf("%s: unknown type %T value from doneChan", pool.Name, t))
@@ -240,5 +301,5 @@ func (pool *SubstateTaskPool) Execute() error {
 		}
 	}
 
-	return nil
+	return res, nil
 }

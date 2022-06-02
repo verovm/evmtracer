@@ -217,6 +217,17 @@ const (
 	SELFDESTRUCT OpCode = 0xff
 )
 
+// 0xb0 range --  trace related
+const (
+	PUSH OpCode = 0xb0 + iota
+	DUP
+	SWAP
+	NOP  // xihu: for dynamic trace
+	ROOT // xihu: for dynamic trace
+	DEST // xihu: for dynamic trace
+)
+
+
 // Since the opcodes aren't all in order we can't use a regular slice.
 var opCodeToString = map[OpCode]string{
 	// 0x0 range - arithmetic ops.

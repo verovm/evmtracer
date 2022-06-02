@@ -17,6 +17,7 @@
 package vm
 
 import (
+	// "fmt"
 	"hash"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -34,14 +35,22 @@ type Config struct {
 	JumpTable *JumpTable // EVM instruction table, automatically populated if unset
 
 	ExtraEips []int // Additional EIPS that are to be enabled
+
+	BlockNum int64
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
 // but not transients like pc and gas
 type ScopeContext struct {
-	Memory   *Memory
-	Stack    *Stack
-	Contract *Contract
+	Memory    *Memory
+	Stack     *Stack
+	Contract  *Contract
+	sstack    *ShadowStack
+	smemory   *ShadowMemory
+	sdb       *ShadowDB
+	graph     *DepGraph
+	idCounter int64
+	destSNode SNode
 }
 
 // keccakState wraps sha3.state. In addition to the usual hash methods, it also supports
@@ -137,10 +146,18 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		op          OpCode        // current opcode
 		mem         = NewMemory() // bound memory
 		stack       = newstack()  // local stack
+		sstack      = newShadowStack()
+		smemory     = NewShadowMemory()
+		sdb         = NewShadowDB()
 		callContext = &ScopeContext{
-			Memory:   mem,
-			Stack:    stack,
-			Contract: contract,
+			Memory:    mem,
+			Stack:     stack,
+			Contract:  contract,
+			sstack:    sstack,
+			smemory:   smemory,
+			sdb:       sdb,
+			idCounter: 0,
+			graph:     NewDepGraph(in.cfg.BlockNum),
 		}
 		// For optimisation reason we're using uint64 as the program counter.
 		// It's theoretically possible to go above 2^64. The YP defines the PC
@@ -172,6 +189,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 		}()
 	}
+	// log the trace
+	defer func() {
+		in.evm.Graphs = append(in.evm.Graphs, callContext.graph)
+	}()
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
@@ -223,14 +244,25 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 			if memorySize > 0 {
 				mem.Resize(memorySize)
+				smemory.Resize(memorySize, SNode{op, callContext.idCounter})
 			}
 		}
 		if in.cfg.Debug {
 			in.cfg.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
+		// fmt.Printf("Before %s, stack: %d, sstack: %d\n",
+		// 	opCodeToString[op], callContext.Stack.len(), len(callContext.sstack.data))
+		// if callContext.Stack.len() != len(callContext.sstack.data) {
+		// 	fmt.Printf("ERROR: stack: %d v.s. sstack: %d\n",
+		// 		callContext.Stack.len(), len(callContext.sstack.data))
+		// 	panic("Unsync stack size\n")
+		// }
 		// execute the operation
+		callContext.destSNode = SNode{op, callContext.idCounter}
+		callContext.graph.recordTopologicalOrder(callContext.destSNode)
 		res, err = operation.execute(&pc, in, callContext)
+		callContext.idCounter += 1
 		if err != nil {
 			break
 		}

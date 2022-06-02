@@ -81,6 +81,7 @@ func enable1884(jt *JumpTable) {
 func opSelfBalance(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	balance, _ := uint256.FromBig(interpreter.evm.StateDB.GetBalance(scope.Contract.Address()))
 	scope.Stack.push(balance)
+	scope.sstack.Push(&scope.destSNode)
 	return nil, nil
 }
 
@@ -100,6 +101,7 @@ func enable1344(jt *JumpTable) {
 func opChainID(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	chainId, _ := uint256.FromBig(interpreter.evm.chainConfig.ChainID)
 	scope.Stack.push(chainId)
+	scope.sstack.Push(&scope.destSNode)
 	return nil, nil
 }
 
@@ -172,5 +174,6 @@ func enable3198(jt *JumpTable) {
 func opBaseFee(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	baseFee, _ := uint256.FromBig(interpreter.evm.Context.BaseFee)
 	scope.Stack.push(baseFee)
+	scope.sstack.Push(&scope.destSNode)
 	return nil, nil
 }

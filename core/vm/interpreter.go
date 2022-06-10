@@ -51,6 +51,12 @@ type ScopeContext struct {
 	graph     *DepGraph
 	idCounter int64
 	destSNode SNode
+	// reduced graph
+	rdstack   *ReducedStack
+	rmemory   *ReducedMemory
+	rgraph    *ReducedGraph
+	destRNode *RNode
+	rgasCost  uint64
 }
 
 // keccakState wraps sha3.state. In addition to the usual hash methods, it also supports
@@ -149,6 +155,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		sstack      = newShadowStack()
 		smemory     = NewShadowMemory()
 		sdb         = NewShadowDB()
+		rdstack     = NewReducedStack()
+		rmemory     = NewReducedMemory()
 		callContext = &ScopeContext{
 			Memory:    mem,
 			Stack:     stack,
@@ -158,6 +166,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			sdb:       sdb,
 			idCounter: 0,
 			graph:     NewDepGraph(in.cfg.BlockNum),
+			rgraph:    NewReducedGraph(in.cfg.BlockNum, in.evm),
+			rdstack:   rdstack,
+			rmemory:   rmemory,
+			rgasCost:  0,
 		}
 		// For optimisation reason we're using uint64 as the program counter.
 		// It's theoretically possible to go above 2^64. The YP defines the PC
@@ -192,6 +204,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	// log the trace
 	defer func() {
 		in.evm.Graphs = append(in.evm.Graphs, callContext.graph)
+		in.evm.RGraphs = append(in.evm.RGraphs, callContext.rgraph)
 	}()
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
@@ -245,8 +258,11 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			if memorySize > 0 {
 				mem.Resize(memorySize)
 				smemory.Resize(memorySize, SNode{op, callContext.idCounter})
+				rmemory.Resize(memorySize, callContext.destRNode)
 			}
 		}
+		callContext.rgasCost = cost
+		callContext.destRNode = &RNode{op: op, deps: nil, id: 0}
 		if in.cfg.Debug {
 			in.cfg.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true

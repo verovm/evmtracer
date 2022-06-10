@@ -36,6 +36,7 @@ func init() {
 		replay.ReplayCommand,
 		replay.ReplayForkCommand,
 		replay.DependencyTraceCommand,
+		replay.RedundancyTraceCommand,
 		dbCommand,
 	}
 	cli.CommandHelpTemplate = flags.OriginCommandHelpTemplate

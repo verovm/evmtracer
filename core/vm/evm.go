@@ -122,6 +122,10 @@ type EVM struct {
 	callGasTemp uint64
 	ShadowDB    *ShadowDB
 	Graphs      []*DepGraph
+	RGraphs     []*ReducedGraph
+	ReducedDB   *ReducedDB
+	MemDB       *MemDB
+	NodeId      int
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -130,6 +134,9 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 	evm := &EVM{
 		Context:     blockCtx,
 		TxContext:   txCtx,
+		ReducedDB:   NewReducedDB(),
+		MemDB:       NewMemDB(),
+		NodeId:      0,
 		StateDB:     statedb,
 		Config:      config,
 		chainConfig: chainConfig,

@@ -143,6 +143,7 @@ func RedTraceWorkerAction(block uint64, tx int, substate *research.Substate) (re
 	if graph.NumSloads == 0 && graph.NumSstores == 0 {
 		return result, nil
 	}
+// block,tx,total_sloads,num_sloads,dynamic_sload,sload_cost,total_sstore,num_sstores,dynamic_sstore,sstore_cost
 	formatted := fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 		block, tx,
 		graph.NumSloads, graph.RTable[vm.SLOAD][0], graph.NumSloadsCached, graph.RTable[vm.SLOAD][1],

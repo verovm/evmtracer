@@ -17,6 +17,7 @@
 package vm
 
 import (
+    // "fmt"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -667,6 +668,7 @@ func opCallDataCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 	memOffset64 := memOffset.Uint64()
 	length64 := length.Uint64()
 	scope.Memory.Set(memOffset64, length64, getData(scope.Contract.Input, dataOffset64, length64))
+	scope.mmemory.Set(memOffset64, length64, getData(scope.Contract.Input, dataOffset64, length64))
 	// scope.smemory.Set(memOffset64, length64, scope.destSNode, scope.graph)
 
 	scope.destRNode.deps = scope.rdstack.consumeN(3)
@@ -714,6 +716,7 @@ func opReturnDataCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeConte
 		return nil, ErrReturnDataOutOfBounds
 	}
 	scope.Memory.Set(memOffset.Uint64(), length.Uint64(), interpreter.returnData[offset64:end64])
+	scope.mmemory.Set(memOffset.Uint64(), length.Uint64(), interpreter.returnData[offset64:end64])
 	// scope.smemory.Set(memOffset.Uint64(), length.Uint64(), scope.destSNode, scope.graph)
 	rnode, _ := scope.rgraph.tryAddNode(scope.destRNode)
 	reused := scope.rmemory.Set(memOffset.Uint64(), length.Uint64(), rnode)
@@ -767,6 +770,7 @@ func opCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 	}
 	codeCopy := getData(scope.Contract.Code, uint64CodeOffset, length.Uint64())
 	scope.Memory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
+	scope.mmemory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
 	// scope.smemory.Set(memOffset.Uint64(), length.Uint64(), scope.destSNode, scope.graph)
 
 	scope.destRNode.deps = scope.rdstack.consumeN(3)
@@ -796,6 +800,7 @@ func opExtCodeCopy(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext)
 	addr := common.Address(a.Bytes20())
 	codeCopy := getData(interpreter.evm.StateDB.GetCode(addr), uint64CodeOffset, length.Uint64())
 	scope.Memory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
+	scope.mmemory.Set(memOffset.Uint64(), length.Uint64(), codeCopy)
 	// scope.smemory.Set(memOffset.Uint64(), length.Uint64(), scope.destSNode, scope.graph)
 
 	scope.destRNode.deps = scope.rdstack.consumeN(4)
@@ -987,9 +992,11 @@ func opPop(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte
 }
 
 func opMload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
+    scope.rgraph.NumMloads += 1
 	v := scope.Stack.peek()
 	offset := int64(v.Uint64())
-	v.SetBytes(scope.Memory.GetPtr(offset, 32))
+    expect := scope.Memory.GetPtr(offset, 32)
+	v.SetBytes(expect)
 
 	// scope.sstack.ConsumeN(1, scope.destSNode, scope.graph)
 	// scope.sstack.Push(&scope.destSNode)
@@ -1000,17 +1007,30 @@ func opMload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	scope.destRNode.deps = append(dataDep, stateDep...)
 	order(&scope.destRNode.deps)
 	rnode, r := scope.rgraph.tryAddNode(scope.destRNode)
+    cached := scope.mmemory.GetPtr(offset, 32, expect)
+    if cached {
+        scope.rgraph.NumMloadsCached += 1
+    }
 	if r {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
+    if r && !cached {
+        panic("Mload reused not cached")
+        // fmt.Println("Mload reused not cached")
+    }
 	scope.rdstack.push(rnode)
 	return nil, nil
 }
 
 func opMstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
+    scope.rgraph.NumMstores += 1
 	// pop value of the stack
 	mStart, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.Set32(mStart.Uint64(), &val)
+    cached := scope.mmemory.Set32(mStart.Uint64(), &val)
+    if cached {
+        scope.rgraph.NumMstoresCached += 1
+    }
 
 	// scope.sstack.ConsumeN(2, scope.destSNode, scope.graph)
 	// scope.smemory.Set32(mStart.Uint64(), scope.destSNode, scope.graph)
@@ -1022,12 +1042,26 @@ func opMstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	if reused {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
+    if reused && !cached {
+        panic("Mstore reused but not cached")
+        // fmt.Println("Mstore reused but not cached")
+    }
 	return nil, nil
 }
 
 func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
+    scope.rgraph.NumMstore8s += 1
 	off, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.store[off.Uint64()] = byte(val.Uint64())
+    cached := false
+    if scope.mmemory.store[off.Uint64()] == byte(val.Uint64()) {
+        cached = true
+    }
+    scope.mmemory.store[off.Uint64()] = byte(val.Uint64())
+    if (cached) {
+        scope.rgraph.NumMstore8sCached += 1
+    }
+
 
 	// scope.sstack.ConsumeN(2, scope.destSNode, scope.graph)
 	// scope.smemory.SetOffSet(off.Uint64(), scope.destSNode)
@@ -1037,6 +1071,10 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	rnode, _ := scope.rgraph.tryAddNode(scope.destRNode)
 	if rnode == scope.rmemory.store[off.Uint64()] {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
+        if !cached {
+            panic("Mstore8 reused but not cached")
+            // fmt.Println("Mstore8 reused but not cached")
+        }
 	}
 	scope.rmemory.store[off.Uint64()] = rnode
 	return nil, nil
@@ -1335,6 +1373,7 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 		// scope.smemory.Set(retOffset.Uint64(), retSize.Uint64(), scope.destSNode, scope.graph)
 		scope.rmemory.Set(retOffset.Uint64(), retSize.Uint64(), rnode)
+		scope.mmemory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 	}
 	scope.Contract.Gas += returnGas
 
@@ -1420,6 +1459,7 @@ func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 	if err == nil || err == ErrExecutionReverted {
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
+		scope.mmemory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 		// scope.smemory.Set(retOffset.Uint64(), retSize.Uint64(), scope.destSNode, scope.graph)
 		scope.rmemory.Set(retOffset.Uint64(), retSize.Uint64(), rnode)
 	}
@@ -1460,6 +1500,7 @@ func opStaticCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) 
 	if err == nil || err == ErrExecutionReverted {
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
+		scope.mmemory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 		// scope.smemory.Set(retOffset.Uint64(), retSize.Uint64(), scope.destSNode, scope.graph)
 		scope.rmemory.Set(retOffset.Uint64(), retSize.Uint64(), rnode)
 	}

@@ -16,6 +16,14 @@ type RNode struct {
 	// hash string
 }
 
+var do_debug = false
+
+func Debug(s string) {
+	if do_debug {
+		fmt.Print(s)
+	}
+}
+
 func (this RNode) toString() string {
 	return fmt.Sprintf("%s_%d", this.op.String(), this.id)
 }
@@ -35,12 +43,18 @@ type ReducedGraph struct {
 	// Nodes  []*RNode
 	Nodes map[string]*RNode
 	// id               int
-	RTable           RedundantCountTable
-	NumSloads        int
-	NumSstores       int
-	NumSloadsCached  int
-	NumSstoresCached int
-	evm              *EVM
+	RTable            RedundantCountTable
+	NumSloads         int
+	NumSstores        int
+	NumSloadsCached   int
+	NumSstoresCached  int
+	NumMloads         int
+	NumMstores        int
+	NumMstore8s       int
+	NumMloadsCached   int
+	NumMstoresCached  int
+	NumMstore8sCached int
+	evm               *EVM
 }
 
 func (this *ReducedGraph) getNodeId() int {
@@ -75,12 +89,18 @@ func (this *ReducedGraph) recordRedundancy(op OpCode, gas uint64) {
 func NewReducedGraph(blockNum int64, evm *EVM) *ReducedGraph {
 	return &ReducedGraph{
 		// id:               0,
-		NumSloads:        0,
-		NumSstores:       0,
-		NumSstoresCached: 0,
-		NumSloadsCached:  0,
-		Nodes:            make(map[string]*RNode),
-		evm:              evm,
+		NumSloads:         0,
+		NumSstores:        0,
+		NumSstoresCached:  0,
+		NumSloadsCached:   0,
+		NumMloads:         0,
+		NumMstores:        0,
+		NumMstore8s:       0,
+		NumMloadsCached:   0,
+		NumMstoresCached:  0,
+		NumMstore8sCached: 0,
+		Nodes:             make(map[string]*RNode),
+		evm:               evm,
 	}
 }
 
@@ -96,6 +116,10 @@ func (this *ReducedGraph) AddReducedGraph(other ReducedGraph) {
 	this.NumSstores += other.NumSstores
 	this.NumSloadsCached += other.NumSloadsCached
 	this.NumSstoresCached += other.NumSstoresCached
+	this.NumMloads += other.NumMloads
+	this.NumMstores += other.NumMstores
+	this.NumMloadsCached += other.NumMloadsCached
+	this.NumMstoresCached += other.NumMstoresCached
 }
 
 // Does not perform check, add a new node with a new id
@@ -187,10 +211,39 @@ type ReducedMemory struct {
 	last_resize *RNode
 }
 
+func NewMemMemory() *MemMemory {
+	return &MemMemory{}
+}
+
 func NewReducedMemory() *ReducedMemory {
 	return &ReducedMemory{
 		last_resize: nil,
 	}
+}
+
+type MemMemory struct {
+	store []byte
+}
+
+func (m *MemMemory) Set(offset, size uint64, expect []byte) bool {
+	if size <= 0 {
+		return false
+	}
+	Debug(fmt.Sprintf("M: Set %d to %s\n", offset, string(expect)))
+	var i uint64
+	var length uint64
+	if size > uint64(len(expect)) {
+		length = uint64(len(expect))
+	} else {
+		length = size
+	}
+	for i = 0; i < length; i++ {
+		if m.store[offset+i] != expect[i] {
+			copy(m.store[offset:offset+size], expect)
+			return false
+		}
+	}
+	return true
 }
 
 // return true if the dest location are the same computatonal result of dest
@@ -201,6 +254,7 @@ func (m *ReducedMemory) Set(offset, size uint64, dest *RNode) bool {
 			panic("invalid memory: store empty")
 		}
 		var reused = true
+		Debug(fmt.Sprintf("R: Set %d to %s\n", offset, dest.hash()))
 		for i := offset; i < offset+size; i++ {
 			if m.store[i] != dest {
 				reused = false
@@ -209,10 +263,28 @@ func (m *ReducedMemory) Set(offset, size uint64, dest *RNode) bool {
 		}
 		return reused
 	}
+	return false
+}
+
+func (m *MemMemory) Set32(offset uint64, val *uint256.Int) bool {
+	Debug(fmt.Sprintf("M: Set32 %d to %s\n", offset, val.Hex()))
+	var tmp = make([]byte, 32)
+	copy(tmp, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	val.WriteToSlice(tmp[0:32])
+
+	var i uint64
+	for i = 0; i < 32; i++ {
+		if m.store[offset+i] != tmp[i] {
+			Debug(fmt.Sprintf("M: Set32 %d byte cannot reused\n", i))
+			copy(m.store[offset:offset+32], tmp)
+			return false
+		}
+	}
 	return true
 }
 
 func (m *ReducedMemory) Set32(offset uint64, dest *RNode) bool {
+	Debug(fmt.Sprintf("R: Set32 %d to %s\n", offset, dest.hash()))
 	if offset+32 > uint64(len(m.store)) {
 		panic("invalid memory: store empty")
 	}
@@ -222,21 +294,51 @@ func (m *ReducedMemory) Set32(offset uint64, dest *RNode) bool {
 			reused = false
 		}
 		m.store[i] = dest
-		return reused
 	}
-	return true
+	return reused
+}
+
+func (m *MemMemory) Len() int {
+	return len(m.store)
+}
+
+func (m *MemMemory) Resize(size uint64) {
+	Debug(fmt.Sprintf("M: Resize to %d\n", size))
+	if uint64(m.Len()) < size {
+		m.store = append(m.store, make([]byte, size-uint64(m.Len()))...)
+	}
 }
 
 // Resize resizes the memory to size
-func (m *ReducedMemory) Resize(size uint64, destNode *RNode) {
+func (m *ReducedMemory) Resize(size uint64, destNode *RNode, graph *ReducedGraph) {
+	Debug(fmt.Sprintf("R: Resize to %d\n", size))
 	i := uint64(m.Len())
 	if uint64(m.Len()) < size {
 		m.last_resize = destNode
+
 		m.store = append(m.store, make([]*RNode, size-uint64(m.Len()))...)
 		for ; i < size; i++ {
-			m.store[i] = destNode
+			m.store[i] = &RNode{op: NOP, deps: nil, id: graph.getNodeId()}
 		}
 	}
+}
+
+func (m *MemMemory) GetCopy(offset, size int64, expect []byte) bool {
+	if size == 0 {
+		return false
+	}
+
+	if len(m.store) > int(offset) {
+		var i int64
+		for i = 0; i < size; i++ {
+			if m.store[offset+i] != expect[i] {
+				return false
+			}
+		}
+		return false
+	}
+
+	return true
 }
 
 // GetCopy is a read operation, so the data is part of the computational deps (but stateful)
@@ -248,18 +350,38 @@ func (m *ReducedMemory) GetCopy(offset, size int64) []*RNode {
 
 	if len(m.store) > int(offset) {
 		var (
-			visited = make(map[*RNode]bool)
-			deps    []*RNode
+			// visited = make(map[*RNode]bool)
+			deps []*RNode
 		)
 		for _, node := range m.store[offset : offset+size] {
-			if _, ok := visited[node]; !ok {
-				deps = append(deps, node)
-				visited[node] = true
-			}
+			// if _, ok := visited[node]; !ok {
+			deps = append(deps, node)
+			// visited[node] = true
+			// }
 		}
 		return deps
 	}
 	return nil
+}
+
+func (m *MemMemory) GetPtr(offset, size int64, expect []byte) bool {
+	Debug(fmt.Sprintf("GetPtr %d, Old (%s), expect (%s)\n", offset, string(size), string(expect)))
+	if size == 0 {
+		return false
+	}
+
+	if len(m.store) > int(offset) {
+		var i int64
+		for i = 0; i < size; i++ {
+			if m.store[offset+i] != expect[i] {
+				// Debug(fmt.Sprintf("M: GetPtr cannot reuse\n"))
+				copy(m.store[offset:offset+size], expect)
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // This method simply returns the deps
@@ -270,15 +392,16 @@ func (m *ReducedMemory) GetPtr(offset, size int64) []*RNode {
 
 	if len(m.store) > int(offset) {
 		var (
-			visited = make(map[*RNode]bool)
-			deps    []*RNode
+			// visited = make(map[*RNode]bool)
+			deps []*RNode
 		)
 		for _, node := range m.store[offset : offset+size] {
-			if _, ok := visited[node]; !ok {
-				deps = append(deps, node)
-				visited[node] = true
-			}
+			// if _, ok := visited[node]; !ok {
+			deps = append(deps, node)
+			// visited[node] = true
+			// }
 		}
+		Debug(fmt.Sprintf("%d Dep: %s\n", offset, deps[0].hash()))
 		return deps
 	}
 	return []*RNode{}

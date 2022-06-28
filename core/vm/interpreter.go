@@ -54,6 +54,7 @@ type ScopeContext struct {
 	// reduced graph
 	rdstack   *ReducedStack
 	rmemory   *ReducedMemory
+	mmemory   *MemMemory
 	rgraph    *ReducedGraph
 	destRNode *RNode
 	rgasCost  uint64
@@ -127,6 +128,8 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+    Debug("==================================\n")
+    Debug("New Context:\n")
 
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
@@ -157,6 +160,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		sdb         = NewShadowDB()
 		rdstack     = NewReducedStack()
 		rmemory     = NewReducedMemory()
+        mmemory     = NewMemMemory()
 		callContext = &ScopeContext{
 			Memory:    mem,
 			Stack:     stack,
@@ -169,6 +173,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			rgraph:    NewReducedGraph(in.cfg.BlockNum, in.evm),
 			rdstack:   rdstack,
 			rmemory:   rmemory,
+			mmemory:   mmemory,
 			rgasCost:  0,
 		}
 		// For optimisation reason we're using uint64 as the program counter.
@@ -257,8 +262,9 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			}
 			if memorySize > 0 {
 				mem.Resize(memorySize)
+				mmemory.Resize(memorySize)
 				smemory.Resize(memorySize, SNode{op, callContext.idCounter})
-				rmemory.Resize(memorySize, callContext.destRNode)
+				rmemory.Resize(memorySize, callContext.destRNode, callContext.rgraph)
 			}
 		}
 		callContext.rgasCost = cost

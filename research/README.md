@@ -1,3 +1,11 @@
+# EVM Tracer
+To build the program, run `make all`.
+
+To start collecting the statistics:
+```
+./substate-cli redundancy-trace --workers=<N> --skip-transfer-txs --substatedir=<path-to-substate-database> --output-dir=<path-to-output-directory> <block_start> <block_end>
+```
+
 # Ethereum Substate Recorder/Replayer
 Ethereum substate recorder/replayer based on the paper:
 

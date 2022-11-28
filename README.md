@@ -1,3 +1,6 @@
+# EVM Tracer 
+See research/README.md to find how to use the tracer to collect statistics.
+
 # Ethereum Substate Recorder/Replayer
 
 Ethereum substate recorder/replayer based on the paper:

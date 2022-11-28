@@ -14,6 +14,14 @@ import (
 	cli "gopkg.in/urfave/cli.v1"
 )
 
+// Some flags
+var (
+	OutputPath = cli.StringFlag{
+		Name:  "output-dir",
+		Usage: "Filename",
+	}
+)
+
 // dependency trace
 var RedundancyTraceCommand = cli.Command{
 	Action:    redTrace,

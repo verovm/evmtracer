@@ -45,13 +45,8 @@ type ScopeContext struct {
 	Memory    *Memory
 	Stack     *Stack
 	Contract  *Contract
-	sstack    *ShadowStack
-	smemory   *ShadowMemory
-	sdb       *ShadowDB
 	MemDB     *MemDB
-	graph     *DepGraph
 	idCounter int64
-	destSNode SNode
 	// reduced graph
 	rdstack   *ReducedStack
 	rmemory   *ReducedMemory
@@ -156,9 +151,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		op          OpCode        // current opcode
 		mem         = NewMemory() // bound memory
 		stack       = newstack()  // local stack
-		sstack      = newShadowStack()
-		smemory     = NewShadowMemory()
-		sdb         = NewShadowDB()
 		rdstack     = NewReducedStack()
 		rmemory     = NewReducedMemory()
 		mmemory     = NewMemMemory()
@@ -167,12 +159,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			Memory:    mem,
 			Stack:     stack,
 			Contract:  contract,
-			sstack:    sstack,
-			smemory:   smemory,
-			sdb:       sdb,
 			MemDB:     memdb,
 			idCounter: 0,
-			graph:     NewDepGraph(in.cfg.BlockNum),
 			rgraph:    NewReducedGraph(in.cfg.BlockNum, in.evm),
 			rdstack:   rdstack,
 			rmemory:   rmemory,
@@ -211,7 +199,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	}
 	// log the trace
 	defer func() {
-		in.evm.Graphs = append(in.evm.Graphs, callContext.graph)
 		in.evm.RGraphs = append(in.evm.RGraphs, callContext.rgraph)
 	}()
 	// The Interpreter main run loop (contextual). This loop runs until either an
@@ -266,7 +253,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			if memorySize > 0 {
 				mem.Resize(memorySize)
 				mmemory.Resize(memorySize)
-				smemory.Resize(memorySize, SNode{op, callContext.idCounter})
 				rmemory.Resize(memorySize, callContext.destRNode, callContext.rgraph)
 			}
 		}
@@ -284,8 +270,6 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// 	panic("Unsync stack size\n")
 		// }
 		// execute the operation
-		callContext.destSNode = SNode{op, callContext.idCounter}
-		callContext.graph.recordTopologicalOrder(callContext.destSNode)
 		res, err = operation.execute(&pc, in, callContext)
 		callContext.idCounter += 1
 		if err != nil {

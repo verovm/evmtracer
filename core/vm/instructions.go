@@ -17,7 +17,6 @@
 package vm
 
 import (
-	"fmt"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -1014,10 +1013,6 @@ func opMload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	if r {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
-	if r && !cached {
-		panic("Mload reused not cached")
-		// fmt.Println("Mload reused not cached")
-	}
 	scope.rdstack.push(rnode)
 	return nil, nil
 }
@@ -1041,10 +1036,6 @@ func opMstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	reused := scope.rmemory.Set32(mStart.Uint64(), rnode)
 	if reused {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
-	}
-	if reused && !cached {
-		panic("Mstore reused but not cached")
-		// fmt.Println("Mstore reused but not cached")
 	}
 	return nil, nil
 }
@@ -1070,10 +1061,6 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	rnode, _ := scope.rgraph.tryAddNode(scope.destRNode)
 	if rnode == scope.rmemory.store[off.Uint64()] {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
-		if !cached {
-			panic("Mstore8 reused but not cached")
-			// fmt.Println("Mstore8 reused but not cached")
-		}
 	}
 	scope.rmemory.store[off.Uint64()] = rnode
 	return nil, nil
@@ -1100,12 +1087,6 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	rnode, r := scope.rgraph.tryAddNode(scope.destRNode)
 	if r {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
-        fmt.Printf("Reused\n")
-	}
-	if r && !cached {
-        id := interpreter.evm.Context.BlockNumber.Uint64()
-        fmt.Printf("Sload %s_%s\n",scope.Contract.Address(), hash)
-        panic(fmt.Sprintf("block %d: Fatal Sload reused but not cached!\n", id))
 	}
 	scope.rdstack.push(rnode)
 	return nil, nil
@@ -1138,9 +1119,6 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	}
 	if reused {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
-	}
-	if reused && !cached {
-		panic("Fatal Sstore reused but not cached!\n")
 	}
 	return nil, nil
 }

@@ -108,9 +108,6 @@ func (this *ReducedGraph) AddReducedGraph(other ReducedGraph) {
 	for i := range this.RTable {
 		this.RTable[i][0] += other.RTable[i][0]
 		this.RTable[i][1] += other.RTable[i][1]
-		// if (i == int(SSTORE)) {
-		//     fmt.Printf("This %d  other %d\n", this.RTable[i][0], other.RTable[i][1])
-		// }
 	}
 	this.NumSloads += other.NumSloads
 	this.NumSstores += other.NumSstores
@@ -374,7 +371,6 @@ func (m *MemMemory) GetPtr(offset, size int64, expect []byte) bool {
 		var i int64
 		for i = 0; i < size; i++ {
 			if m.store[offset+i] != expect[i] {
-				// Debug(fmt.Sprintf("M: GetPtr cannot reuse\n"))
 				copy(m.store[offset:offset+size], expect)
 				return false
 			}
@@ -392,14 +388,10 @@ func (m *ReducedMemory) GetPtr(offset, size int64) []*RNode {
 
 	if len(m.store) > int(offset) {
 		var (
-			// visited = make(map[*RNode]bool)
 			deps []*RNode
 		)
 		for _, node := range m.store[offset : offset+size] {
-			// if _, ok := visited[node]; !ok {
 			deps = append(deps, node)
-			// visited[node] = true
-			// }
 		}
 		Debug(fmt.Sprintf("%d Dep: %s\n", offset, deps[0].hash()))
 		return deps
@@ -490,18 +482,12 @@ func (this *MemDB) SetStateMem(addr common.Address, hash common.Hash) {
 // Set operation return true if the last modifier is the same as newNode
 // update the last modifier
 func (this *ReducedDB) SetState(addr common.Address, hash common.Hash, newNode *RNode) bool {
-	fmt.Printf("Set %s_%s to %s\n", addr.Hex(), hash.Hex(), newNode.hash())
 	var reused = false
 	if ret, ok := this.state[addr]; ok {
 		if node, ok := ret[hash]; ok {
 			if node == newNode {
 				reused = true
-				// fmt.Printf("old node: %s\n", node.hash())
-				// fmt.Printf("new node: %s\n", node.hash())
 			}
-			// else {
-			// fmt.Printf("Set dep: %s\n", newNode.hash())
-			// }
 			ret[hash] = newNode
 		} else {
 			this.state[addr][hash] = newNode

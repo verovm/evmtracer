@@ -48,6 +48,7 @@ type ScopeContext struct {
 	sstack    *ShadowStack
 	smemory   *ShadowMemory
 	sdb       *ShadowDB
+	MemDB     *MemDB
 	graph     *DepGraph
 	idCounter int64
 	destSNode SNode
@@ -128,8 +129,8 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
-    Debug("==================================\n")
-    Debug("New Context:\n")
+	Debug("==================================\n")
+	Debug("New Context:\n")
 
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
@@ -160,7 +161,8 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		sdb         = NewShadowDB()
 		rdstack     = NewReducedStack()
 		rmemory     = NewReducedMemory()
-        mmemory     = NewMemMemory()
+		mmemory     = NewMemMemory()
+		memdb       = NewMemDB()
 		callContext = &ScopeContext{
 			Memory:    mem,
 			Stack:     stack,
@@ -168,6 +170,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			sstack:    sstack,
 			smemory:   smemory,
 			sdb:       sdb,
+			MemDB:     memdb,
 			idCounter: 0,
 			graph:     NewDepGraph(in.cfg.BlockNum),
 			rgraph:    NewReducedGraph(in.cfg.BlockNum, in.evm),

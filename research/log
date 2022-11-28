@@ -1,0 +1,23 @@
+substate-cli dependecy trace: elapsed time: 5h36m29.303s, number = 9146287
+substate-cli dependecy trace: 8.68 blk/s, 962.14 tx/s
+goroutine 222 [running]:
+github.com/ethereum/go-ethereum/core/vm.(*ShadowStack).Swap(0xc1a10edb40, 0x2, 0x90, 0xb, 0xc247288c00)
+        /home/xihu5895/record-replay/core/vm/shadow_state.go:67 +0x36f
+github.com/ethereum/go-ethereum/core/vm.makeSwap.func1(0xc1a1e7c5c8, 0xc198b6f040, 0xc0ece07cc0, 0x0, 0x0, 0x0, 0x0, 0x0)
+        /home/xihu5895/record-replay/core/vm/instructions.go:1108 +0xdc
+github.com/ethereum/go-ethereum/core/vm.(*EVMInterpreter).Run(0xc198b6f040, 0xc15c063800, 0xf97e08, 0x0, 0x0, 0x49db87d5c2b10400, 0x0, 0x0, 0x0, 0x0, ...)
+        /home/xihu5895/record-replay/core/vm/interpreter.go:256 +0x6af
+github.com/ethereum/go-ethereum/core/vm.(*EVM).Call(0xc1a22883c0, 0xb564a0, 0xc1a2284940, 0xb4303b72e918576e, 0x1178cc87f0cd40b9, 0xc065fedf24, 0xf97e08, 0x0, 0x0, 0x773c6, ...)
+        /home/xihu5895/record-replay/core/vm/evm.go:229 +0x861
+github.com/ethereum/go-ethereum/core.(*StateTransition).TransitionDb(0xc184316c80, 0xb67860, 0xc0dbdbcab0, 0xc1a1e7c550)
+        /home/xihu5895/record-replay/core/state_transition.go:325 +0x740
+github.com/ethereum/go-ethereum/core.ApplyMessage(0xc1a22883c0, 0xb67860, 0xc0dbdbcab0, 0xc1a1e7c550, 0x1, 0xc1a1e7c570, 0x0)
+        /home/xihu5895/record-replay/core/state_transition.go:181 +0x57
+github.com/ethereum/go-ethereum/cmd/substate-cli/replay.DepTraceWorkerAction(0x8b907b, 0x10, 0xc122ec6d80, 0xa10d20, 0xc1a10ece20, 0x0, 0x0)
+        /home/xihu5895/record-replay/cmd/substate-cli/replay/dep_trace.go:131 +0x871
+github.com/ethereum/go-ethereum/research.(*SubstateTaskPool).ExecuteBlock(0xc000100660, 0x8b907b, 0x2, 0x0, 0x101, 0x8b9031, 0x0, 0x0)
+        /home/xihu5895/record-replay/research/substate_task.go:149 +0x17c
+github.com/ethereum/go-ethereum/research.(*SubstateTaskPool).Execute.func3(0xc007840070, 0xc0061ee000, 0xc000100660, 0xc0001006c0, 0xc00010c960)
+        /home/xihu5895/record-replay/research/substate_task.go:214 +0x129
+created by github.com/ethereum/go-ethereum/research.(*SubstateTaskPool).Execute
+        /home/xihu5895/record-replay/research/substate_task.go:207 +0x541

@@ -17,7 +17,7 @@
 package vm
 
 import (
-    // "fmt"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -992,10 +992,10 @@ func opPop(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte
 }
 
 func opMload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-    scope.rgraph.NumMloads += 1
+	scope.rgraph.NumMloads += 1
 	v := scope.Stack.peek()
 	offset := int64(v.Uint64())
-    expect := scope.Memory.GetPtr(offset, 32)
+	expect := scope.Memory.GetPtr(offset, 32)
 	v.SetBytes(expect)
 
 	// scope.sstack.ConsumeN(1, scope.destSNode, scope.graph)
@@ -1007,30 +1007,30 @@ func opMload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	scope.destRNode.deps = append(dataDep, stateDep...)
 	order(&scope.destRNode.deps)
 	rnode, r := scope.rgraph.tryAddNode(scope.destRNode)
-    cached := scope.mmemory.GetPtr(offset, 32, expect)
-    if cached {
-        scope.rgraph.NumMloadsCached += 1
-    }
+	cached := scope.mmemory.GetPtr(offset, 32, expect)
+	if cached {
+		scope.rgraph.NumMloadsCached += 1
+	}
 	if r {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
-    if r && !cached {
-        panic("Mload reused not cached")
-        // fmt.Println("Mload reused not cached")
-    }
+	if r && !cached {
+		panic("Mload reused not cached")
+		// fmt.Println("Mload reused not cached")
+	}
 	scope.rdstack.push(rnode)
 	return nil, nil
 }
 
 func opMstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-    scope.rgraph.NumMstores += 1
+	scope.rgraph.NumMstores += 1
 	// pop value of the stack
 	mStart, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.Set32(mStart.Uint64(), &val)
-    cached := scope.mmemory.Set32(mStart.Uint64(), &val)
-    if cached {
-        scope.rgraph.NumMstoresCached += 1
-    }
+	cached := scope.mmemory.Set32(mStart.Uint64(), &val)
+	if cached {
+		scope.rgraph.NumMstoresCached += 1
+	}
 
 	// scope.sstack.ConsumeN(2, scope.destSNode, scope.graph)
 	// scope.smemory.Set32(mStart.Uint64(), scope.destSNode, scope.graph)
@@ -1042,26 +1042,25 @@ func opMstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	if reused {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
-    if reused && !cached {
-        panic("Mstore reused but not cached")
-        // fmt.Println("Mstore reused but not cached")
-    }
+	if reused && !cached {
+		panic("Mstore reused but not cached")
+		// fmt.Println("Mstore reused but not cached")
+	}
 	return nil, nil
 }
 
 func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-    scope.rgraph.NumMstore8s += 1
+	scope.rgraph.NumMstore8s += 1
 	off, val := scope.Stack.pop(), scope.Stack.pop()
 	scope.Memory.store[off.Uint64()] = byte(val.Uint64())
-    cached := false
-    if scope.mmemory.store[off.Uint64()] == byte(val.Uint64()) {
-        cached = true
-    }
-    scope.mmemory.store[off.Uint64()] = byte(val.Uint64())
-    if (cached) {
-        scope.rgraph.NumMstore8sCached += 1
-    }
-
+	cached := false
+	if scope.mmemory.store[off.Uint64()] == byte(val.Uint64()) {
+		cached = true
+	}
+	scope.mmemory.store[off.Uint64()] = byte(val.Uint64())
+	if cached {
+		scope.rgraph.NumMstore8sCached += 1
+	}
 
 	// scope.sstack.ConsumeN(2, scope.destSNode, scope.graph)
 	// scope.smemory.SetOffSet(off.Uint64(), scope.destSNode)
@@ -1071,10 +1070,10 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	rnode, _ := scope.rgraph.tryAddNode(scope.destRNode)
 	if rnode == scope.rmemory.store[off.Uint64()] {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
-        if !cached {
-            panic("Mstore8 reused but not cached")
-            // fmt.Println("Mstore8 reused but not cached")
-        }
+		if !cached {
+			panic("Mstore8 reused but not cached")
+			// fmt.Println("Mstore8 reused but not cached")
+		}
 	}
 	scope.rmemory.store[off.Uint64()] = rnode
 	return nil, nil
@@ -1086,7 +1085,7 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	hash := common.Hash(loc.Bytes32())
 	val := interpreter.evm.StateDB.GetState(scope.Contract.Address(), hash)
 	loc.SetBytes(val.Bytes())
-	cached := interpreter.evm.MemDB.GetStateMem(scope.Contract.Address(), hash, val)
+	cached := scope.MemDB.GetStateMem(scope.Contract.Address(), hash)
 	if cached {
 		scope.rgraph.NumSloadsCached += 1
 	}
@@ -1101,10 +1100,13 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 	rnode, r := scope.rgraph.tryAddNode(scope.destRNode)
 	if r {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
+        fmt.Printf("Reused\n")
 	}
-    if r && !cached {
-        panic("Fatal Sload reused but not cached!\n")
-    }
+	if r && !cached {
+        id := interpreter.evm.Context.BlockNumber.Uint64()
+        fmt.Printf("Sload %s_%s\n",scope.Contract.Address(), hash)
+        panic(fmt.Sprintf("block %d: Fatal Sload reused but not cached!\n", id))
+	}
 	scope.rdstack.push(rnode)
 	return nil, nil
 }
@@ -1116,33 +1118,30 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	scope.rgraph.NumSstores += 1
 	loc := scope.Stack.pop()
 	val := scope.Stack.pop()
+	old_value := interpreter.evm.StateDB.GetState(scope.Contract.Address(), loc.Bytes32())
+	cached := old_value == val.Bytes32()
 	interpreter.evm.StateDB.SetState(scope.Contract.Address(),
 		loc.Bytes32(), val.Bytes32())
-	// scope.sstack.ConsumeN(2, scope.destSNode, scope.graph)
-	// scope.sdb.SetState(scope.Contract.Address(),
-	// common.Hash(loc.Bytes32()), scope.destSNode, scope.graph)
 
 	scope.destRNode.deps = scope.rdstack.consumeN(2)
-    order(&scope.destRNode.deps)
+	order(&scope.destRNode.deps)
 	rnode, _ := scope.rgraph.tryAddNode(scope.destRNode)
 	interpreter.evm.StateDB.SetState(scope.Contract.Address(),
 		common.Hash(loc.Bytes32()), common.Hash(val.Bytes32()))
-	// fmt.Printf("SSTORE %s (%d)\n", common.Hash(loc.Bytes32()).String(), interpreter.evm.depth)
-	// scope.sdb.SetState(scope.contract.Address(),
-	// common.Hash(loc.Bytes32()), scope.destSNode, scope.graph)
+
 	reused := interpreter.evm.ReducedDB.SetState(scope.Contract.Address(),
 		common.Hash(loc.Bytes32()), rnode)
-	cached := interpreter.evm.MemDB.SetStateMem(scope.Contract.Address(),
-		common.Hash(loc.Bytes32()), common.Hash(val.Bytes32()))
 	if cached {
 		scope.rgraph.NumSstoresCached += 1
+	} else {
+		scope.MemDB.SetStateMem(scope.Contract.Address(), common.Hash(loc.Bytes32()))
 	}
 	if reused {
 		scope.rgraph.recordRedundancy(scope.destRNode.op, scope.rgasCost)
 	}
-    if reused && !cached {
-        panic("Fatal Sstore reused but not cached!\n")
-    }
+	if reused && !cached {
+		panic("Fatal Sstore reused but not cached!\n")
+	}
 	return nil, nil
 }
 

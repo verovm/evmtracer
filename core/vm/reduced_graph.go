@@ -422,12 +422,12 @@ type ReducedDB struct {
 }
 
 type MemDB struct {
-	cache map[common.Address]map[common.Hash]common.Hash
+	cache map[common.Address]map[common.Hash]bool
 }
 
 func NewMemDB() *MemDB {
 	return &MemDB{
-		cache: make(map[common.Address]map[common.Hash]common.Hash),
+		cache: make(map[common.Address]map[common.Hash]bool),
 	}
 }
 
@@ -437,79 +437,60 @@ func NewReducedDB() *ReducedDB {
 	}
 }
 
-func (this *MemDB) GetStateMem(addr common.Address, hash common.Hash, expected common.Hash) bool {
-	// fmt.Printf("Get %s %s\n", addr.Hex(), hash.Hex())
-	cached := false
+func (this *MemDB) GetStateMem(addr common.Address, hash common.Hash) bool {
+	fmt.Printf("MemGet %s_%s\n", addr.Hex(), hash.Hex())
 	if ret, ok := this.cache[addr]; ok {
 		if value, ok := ret[hash]; ok {
-			this.cache[addr][hash] = expected
-			cached = value == expected
-			// if (!cached) {
-			//     fmt.Printf("Get cannot cached, expected %s get %s\n", expected.Hex(), value.Hex())
-			// }
+			this.cache[addr][hash] = true
+            if value {
+	            fmt.Printf("Cached\n")
+            } else {
+	            fmt.Printf("Not Cached\n")
+            }
+			return value
 		} else {
-			this.cache[addr][hash] = expected
-			cached = false
-			// if (!cached) {
-			//     fmt.Printf("Get cannot cached, no Entry\n")
-			// }
+			this.cache[addr][hash] = true
+	        fmt.Printf("Not Cached\n")
+			return false
 		}
 	} else {
-		this.cache[addr] = make(map[common.Hash]common.Hash)
-		this.cache[addr][hash] = expected
-		cached = false
-		// if (!cached) {
-		//     fmt.Printf("Get cannot cached, no Entry\n")
-		// }
+		this.cache[addr] = make(map[common.Hash]bool)
+		this.cache[addr][hash] = true
+	    fmt.Printf("Not Cached\n")
+		return false
 	}
-	return cached
 }
 
 // Read operation collect the deps
 func (this *ReducedDB) GetState(addr common.Address, hash common.Hash, graph *ReducedGraph) []*RNode {
+	fmt.Printf("Get %s_%s\n", addr.Hex(), hash.Hex())
 	if ret, ok := this.state[addr]; ok {
 		if node, ok := ret[hash]; ok {
-			// fmt.Printf("sload0 %s %s\n", addr.Hex(), hash.Hex())
-			// fmt.Printf("sload0 deps: %s\n", node.hash())
 			return []*RNode{node}
 		} else {
-			// fmt.Printf("init dependency with %d get %s\n", this.id, uint256.NewInt(this.id).Hex())
 			this.state[addr][hash] = &RNode{op: NOP, deps: nil, id: graph.getNodeId()}
-			// fmt.Printf("sload1 deps: %s\n", this.state[addr][hash].hash())
 		}
 	} else {
 		this.state[addr] = make(map[common.Hash]*RNode)
 		this.state[addr][hash] = &RNode{op: NOP, deps: nil, id: graph.getNodeId()}
-		// fmt.Printf("sload2 deps: %s\n", this.state[addr][hash].hash())
 	}
-	// fmt.Printf("sload1 %s %s\n", addr.Hex(), hash.Hex())
 	return []*RNode{this.state[addr][hash]}
 }
 
-func (this *MemDB) SetStateMem(addr common.Address, hash common.Hash, newValue common.Hash) bool {
-	// fmt.Printf("Set %s %s to %s\n", addr.Hex(), hash.Hex(), newValue.Hex())
-	if ret, ok := this.cache[addr]; ok {
-		if value, ok := ret[hash]; ok {
-			this.cache[addr][hash] = newValue
-			// if value != newValue {
-			// 	fmt.Printf("Cannot cache: Old %s new %s\n", value.Hex(), newValue.Hex())
-			// }
-			return value == newValue
-		} else {
-			this.cache[addr][hash] = newValue
-			return false
-		}
+func (this *MemDB) SetStateMem(addr common.Address, hash common.Hash) {
+	fmt.Printf("Mem Overwrite %s_%s\n", addr.Hex(), hash.Hex())
+	if _, ok := this.cache[addr]; ok {
+			this.cache[addr][hash] = false
 	} else {
-		this.cache[addr] = make(map[common.Hash]common.Hash)
-		this.cache[addr][hash] = newValue
-		return false
+		this.cache[addr] = make(map[common.Hash]bool)
+		this.cache[addr][hash] = false
 	}
 }
 
 // Set operation return true if the last modifier is the same as newNode
 // update the last modifier
 func (this *ReducedDB) SetState(addr common.Address, hash common.Hash, newNode *RNode) bool {
-	// fmt.Printf("Set %s %s to %s\n", addr.Hex(), hash.Hex(), newNode.hash())
+	fmt.Printf("Set %s_%s to %s\n", addr.Hex(), hash.Hex(), newNode.hash())
 	var reused = false
 	if ret, ok := this.state[addr]; ok {
 		if node, ok := ret[hash]; ok {
